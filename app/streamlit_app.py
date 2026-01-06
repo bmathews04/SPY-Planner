@@ -45,6 +45,10 @@ db.ensure_schema()
 with st.spinner("Loading market data..."):
     df = md.get_daily_bars(symbol=symbol, source=data_source, force_refresh=force_refresh)
 
+# Label any unlabeled occurrences so probabilities get smarter over time
+# (safe to call every run; it only updates rows where label IS NULL)
+_ = db.update_labels_for_symbol(symbol=symbol, df_daily=df)
+
 if df is None or df.empty or len(df) < 300:
     st.error("Not enough data returned. Try yfinance, or check symbol.")
     st.stop()
