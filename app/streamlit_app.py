@@ -12,11 +12,14 @@ from dotenv import load_dotenv
 
 import streamlit as st
 
-from spyplanner.config.defaults import default_params
 from spyplanner.data.service import MarketDataService
 from spyplanner.engine.plan import build_plan
 from spyplanner.charts.plotly_chart import plot_plan_chart
 from spyplanner.storage.db import DB
+
+# NEW: dynamic defaults
+from spyplanner.features.indicators import add_indicators
+from spyplanner.engine.recommend import recommend_trade_params
 
 
 load_dotenv()
@@ -30,24 +33,12 @@ st.caption(
     "It does not place trades."
 )
 
-# ---- Sidebar ----
+# ---- Sidebar (Phase 1: Ticker & Data Source) ----
 with st.sidebar:
     st.header("Inputs")
 
     symbol = st.text_input("Ticker Symbol", value="SPY").strip().upper()
     data_source = st.selectbox("Data Source", ["yfinance", "alpaca"], index=0)
-
-    st.subheader("Plan Settings (Daily)")
-    p = default_params()
-
-    lookahead = st.selectbox("Probability Lookahead (Trading Days)", [10, 20, 40], index=1)
-    stop_atr = st.slider("Stop Distance (ATR)", 0.7, 3.5, float(p.stop_atr), 0.1)
-    target_atr = st.slider("Target 1 Distance (ATR)", 0.8, 6.0, float(p.target1_atr), 0.1)
-    target2_mult = st.slider("Target 2 Multiplier (x Target 1)", 1.2, 2.5, float(p.target2_mult), 0.1)
-
-    st.subheader("Optional Position Sizing")
-    max_risk_dollars = st.number_input("Max Risk ($) per Trade", min_value=0.0, value=0.0, step=25.0)
-    st.caption("If set above $0, the app will estimate share size from entry-to-stop risk.")
 
     st.subheader("Data & Cache")
     force_refresh = st.checkbox("Force Refresh Market Data", value=False)
@@ -68,6 +59,65 @@ with st.spinner("Loading Market Data..."):
 if df is None or df.empty or len(df) < 300:
     st.error("Not enough market data returned. Try Yahoo Finance, verify the ticker, or disable Force Refresh.")
     st.stop()
+
+# ---- Dynamic Recommendations (Stop/Targets/Lookahead) ----
+# Add indicators so ATR exists for recommendation logic
+df_feat = add_indicators(df, ema_fast=20, ema_mid=50, ema_slow=200, atr_n=14).dropna()
+rec = recommend_trade_params(df_feat)
+
+# ---- Sidebar (Phase 2: Plan Settings — Dynamic Defaults) ----
+with st.sidebar:
+    st.subheader("Plan Settings (Daily)")
+    st.caption(
+        f"Recommended for **{symbol}** · "
+        f"Stop **{rec.stop_atr:.1f} ATR**, "
+        f"Target **{rec.target1_atr:.1f} ATR**"
+    )
+
+    with st.expander("Why These Defaults?"):
+        st.write(rec.reason)
+        st.write(
+            "Defaults are based on the ticker’s historical daily volatility (ATR%) and gap behavior. "
+            "Higher volatility typically requires wider stops and larger targets."
+        )
+
+    lookahead = st.selectbox(
+        "Probability Lookahead (Trading Days)",
+        [10, 20, 40],
+        index=[10, 20, 40].index(rec.lookahead_days) if rec.lookahead_days in [10, 20, 40] else 1,
+        key=f"lookahead_{symbol}",
+    )
+
+    stop_atr = st.slider(
+        "Stop Distance (ATR)",
+        0.7, 3.5,
+        float(rec.stop_atr), 0.1,
+        key=f"stop_atr_{symbol}",
+    )
+
+    target_atr = st.slider(
+        "Target 1 Distance (ATR)",
+        0.8, 6.0,
+        float(rec.target1_atr), 0.1,
+        key=f"target1_atr_{symbol}",
+    )
+
+    target2_mult = st.slider(
+        "Target 2 Multiplier (x Target 1)",
+        1.2, 2.5,
+        float(rec.target2_mult), 0.1,
+        key=f"target2_mult_{symbol}",
+    )
+
+    st.subheader("Optional Position Sizing")
+    max_risk_dollars = st.number_input(
+        "Max Risk ($) per Trade",
+        min_value=0.0,
+        value=0.0,
+        step=25.0,
+        key=f"max_risk_{symbol}",
+    )
+    st.caption("If set above $0, the app will estimate share size from entry-to-stop risk.")
 
 # Label any unlabeled occurrences so probabilities get smarter over time
 # (safe to call every run; it only updates rows where label IS NULL)
@@ -156,6 +206,7 @@ with tab1:
 
 with tab2:
     from spyplanner.stats.reports import stats_summary_table
+
     tbl = stats_summary_table(db=db, symbol=symbol)
     st.dataframe(tbl, use_container_width=True)
 
