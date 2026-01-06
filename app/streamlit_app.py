@@ -195,14 +195,14 @@ with col2:
     st.write(f"- **Target 1:** {t1:.2f}")
     st.write(f"- **Target 2:** {t2:.2f}")
 
-    with st.expander("Risk/Reward Table (Is This Worth Attempting?)", expanded=True):
+    with st.expander("Risk/Reward Table", expanded=True):
         rows = [
             {
                 "Level": "Entry",
                 "Price": f"{entry:.2f}",
                 "Δ vs Entry ($/sh)": "—",
                 "Risk/Reward (R)": "—",
-                "Notes": "Planned entry price",
+                "Notes": "Planned Entry Price",
             },
             {
                 "Level": "Stop Loss",
@@ -224,7 +224,7 @@ with col2:
                 "Price": f"{t2:.2f}",
                 "Δ vs Entry ($/sh)": f"+{reward_t2:.2f}",
                 "Risk/Reward (R)": f"{r2:.2f}R" if r2 is not None else "n/a",
-                "Notes": "Stretch/runner target",
+                "Notes": "Stretch/Runner Target",
             },
         ]
         tbl = pd.DataFrame(rows)
@@ -260,10 +260,77 @@ with col2:
         st.write(f"- **Sample Size:** {plan.prob_sample}")
         st.write(f"- **Expected Value (R):** {plan.ev_r:.2f}R")
 
+    # --- Notes & Guidance ---
+    st.subheader("Notes & Guidance")
+
+    # Existing engine notes
     if plan.notes:
-        st.subheader("Notes & Guidance")
         for n in plan.notes:
             st.warning(n)
+
+    # --- R & ATR Sanity Check ---
+    st.markdown("### Risk & Volatility Sanity Check")
+    st.caption("Use this quick checklist to decide if the plan is reasonable before placing orders.")
+
+    # ATR explanation
+    if atr14 is not None and atr14 > 0:
+        st.write(
+            f"- **ATR (14): {atr14:.2f}** — this ticker typically moves about **${atr14:.2f} per day**. "
+            "Higher ATR means wider normal swings; stops and targets should be wider too."
+        )
+    else:
+        st.write("- **ATR (14):** n/a")
+
+    # Risk vs ATR
+    if risk_atr is not None:
+        if risk_atr < 0.7:
+            st.warning(
+                f"- **Planned Risk:** **{risk_atr:.2f} ATR** — very tight relative to daily movement; could be stopped by normal noise."
+            )
+        elif risk_atr <= 1.3:
+            st.success(
+                f"- **Planned Risk:** **{risk_atr:.2f} ATR** — well-calibrated for a daily plan; allows room for typical volatility."
+            )
+        elif risk_atr <= 1.8:
+            st.info(
+                f"- **Planned Risk:** **{risk_atr:.2f} ATR** — reasonable for volatile/trending tickers; consider sizing appropriately."
+            )
+        else:
+            st.warning(
+                f"- **Planned Risk:** **{risk_atr:.2f} ATR** — wide stop; ensure position size reflects the risk."
+            )
+    else:
+        st.write("- **Planned Risk (in ATR):** n/a")
+
+    # R multiple interpretation
+    if r1 is not None:
+        if r1 < 1.2:
+            st.warning(
+                f"- **Target 1 Reward:** **{r1:.2f}R** — reward may not sufficiently compensate for risk; consider waiting for a better entry."
+            )
+        elif r1 < 1.5:
+            st.info(
+                f"- **Target 1 Reward:** **{r1:.2f}R** — borderline; execution discipline matters (avoid chasing)."
+            )
+        else:
+            st.success(
+                f"- **Target 1 Reward:** **{r1:.2f}R** — favorable; if price comes to your entry, this is a reasonable attempt."
+            )
+    else:
+        st.write("- **Target 1 Reward (R):** n/a")
+
+    # Final summary
+    if (risk_atr is not None) and (r1 is not None):
+        if (risk_atr <= 1.8) and (r1 >= 1.5):
+            st.success(
+                "✅ **Overall Assessment:** Risk is reasonable relative to volatility and reward is sufficient. "
+                "The key is patience — wait for price to come to your level."
+            )
+        else:
+            st.info(
+                "ℹ️ **Overall Assessment:** The plan is structurally valid, but either risk or reward is less favorable. "
+                "Waiting for a better entry may improve the setup."
+            )
 
     with st.expander("Raw Plan JSON (Advanced)"):
         st.json(plan.to_dict())
@@ -290,9 +357,9 @@ with tab2:
     from spyplanner.stats.reports import stats_summary_table
 
     tbl = stats_summary_table(db=db, symbol=symbol)
-    st.dataframe(tbl, use_container_width=True)
+    st.dataframe(tbl, use_container_width=True, hide_index=True)
 
 with tab3:
     st.caption("Recent plan snapshots saved locally (SQLite).")
     snaps = db.read_recent_snapshots(symbol=symbol, limit=25)
-    st.dataframe(snaps, use_container_width=True)
+    st.dataframe(snaps, use_container_width=True, hide_index=True)
