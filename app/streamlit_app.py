@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
 import os
 from dotenv import load_dotenv
 
+import pandas as pd
 import streamlit as st
 
 from spyplanner.data.service import MarketDataService
@@ -17,7 +18,7 @@ from spyplanner.engine.plan import build_plan
 from spyplanner.charts.plotly_chart import plot_plan_chart
 from spyplanner.storage.db import DB
 
-# NEW: dynamic defaults
+# Dynamic defaults
 from spyplanner.features.indicators import add_indicators
 from spyplanner.engine.recommend import recommend_trade_params
 
@@ -61,7 +62,6 @@ if df is None or df.empty or len(df) < 300:
     st.stop()
 
 # ---- Dynamic Recommendations (Stop/Targets/Lookahead) ----
-# Add indicators so ATR exists for recommendation logic
 df_feat = add_indicators(df, ema_fast=20, ema_mid=50, ema_slow=200, atr_n=14).dropna()
 rec = recommend_trade_params(df_feat)
 
@@ -157,10 +157,92 @@ with col2:
     st.write(f"- **Resistance Zone (Ceiling):** `{plan.ceiling_zone}`" if plan.ceiling_zone else "- **Resistance Zone (Ceiling):** n/a")
 
     st.markdown("### Entry, Stop, and Targets")
-    st.write(f"- **Entry ({plan.entry_type.title()}):** {plan.entry_price:.2f}")
-    st.write(f"- **Stop Loss:** {plan.stop_price:.2f}  *(Risk: {plan.risk_per_share:.2f} per share)*")
-    st.write(f"- **Target 1:** {plan.target1_price:.2f}  *(R: {plan.r_to_t1:.2f})*")
-    st.write(f"- **Target 2:** {plan.target2_price:.2f}  *(R: {plan.r_to_t2:.2f})*")
+
+    # Core values
+    entry = float(plan.entry_price)
+    stop = float(plan.stop_price)
+    t1 = float(plan.target1_price)
+    t2 = float(plan.target2_price)
+
+    risk_per_share = float(plan.risk_per_share) if plan.risk_per_share is not None else max(entry - stop, 0.0)
+    atr14 = float(plan.atr14) if plan.atr14 is not None else None
+
+    reward_t1 = t1 - entry
+    reward_t2 = t2 - entry
+
+    r1 = float(plan.r_to_t1) if plan.r_to_t1 is not None else (reward_t1 / risk_per_share if risk_per_share > 0 else None)
+    r2 = float(plan.r_to_t2) if plan.r_to_t2 is not None else (reward_t2 / risk_per_share if risk_per_share > 0 else None)
+
+    risk_atr = (risk_per_share / atr14) if (atr14 and atr14 > 0) else None
+
+    # Simple trade quality heuristic (edit thresholds if you want)
+    def rr_label(r: float | None) -> str:
+        if r is None:
+            return "n/a"
+        if r >= 2.0:
+            return "Strong"
+        if r >= 1.5:
+            return "Good"
+        if r >= 1.2:
+            return "Borderline"
+        return "Not Great"
+
+    quality_t1 = rr_label(r1)
+
+    # Quick bullets (easy scan)
+    st.write(f"- **Entry ({plan.entry_type.title()}):** {entry:.2f}")
+    st.write(f"- **Stop Loss:** {stop:.2f}")
+    st.write(f"- **Target 1:** {t1:.2f}")
+    st.write(f"- **Target 2:** {t2:.2f}")
+
+    with st.expander("Risk/Reward Table (Is This Worth Attempting?)", expanded=True):
+        rows = [
+            {
+                "Level": "Entry",
+                "Price": f"{entry:.2f}",
+                "Δ vs Entry ($/sh)": "—",
+                "Risk/Reward (R)": "—",
+                "Notes": "Planned entry price",
+            },
+            {
+                "Level": "Stop Loss",
+                "Price": f"{stop:.2f}",
+                "Δ vs Entry ($/sh)": f"-{risk_per_share:.2f}",
+                "Risk/Reward (R)": "1.00R",
+                "Notes": f"Risk = {risk_per_share:.2f}/sh"
+                         + (f" ({risk_atr:.2f} ATR)" if risk_atr is not None else ""),
+            },
+            {
+                "Level": "Target 1",
+                "Price": f"{t1:.2f}",
+                "Δ vs Entry ($/sh)": f"+{reward_t1:.2f}",
+                "Risk/Reward (R)": f"{r1:.2f}R" if r1 is not None else "n/a",
+                "Notes": f"Quality: {quality_t1}",
+            },
+            {
+                "Level": "Target 2",
+                "Price": f"{t2:.2f}",
+                "Δ vs Entry ($/sh)": f"+{reward_t2:.2f}",
+                "Risk/Reward (R)": f"{r2:.2f}R" if r2 is not None else "n/a",
+                "Notes": "Stretch/runner target",
+            },
+        ]
+        tbl = pd.DataFrame(rows)
+        st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+        if r1 is not None:
+            if r1 < 1.2:
+                st.warning("Target 1 offers a low R multiple. Consider skipping or waiting for a better entry (price comes to you).")
+            elif r1 < 1.5:
+                st.info("Target 1 is borderline. This can work, but discipline matters (don’t chase).")
+            else:
+                st.success("Risk/Reward looks favorable for Target 1. If price comes to your entry, it’s a reasonable attempt.")
+
+        if atr14 is not None and atr14 > 0:
+            st.caption(
+                f"ATR(14) is **{atr14:.2f}**. Planned risk is **{risk_per_share:.2f}/share**"
+                + (f" (**{risk_atr:.2f} ATR**)." if risk_atr is not None else ".")
+            )
 
     if plan.suggested_shares and plan.suggested_shares > 0:
         st.markdown("### Position Size (Optional)")
