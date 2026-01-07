@@ -308,24 +308,87 @@ with tab4:
     )
 
     PRESETS = {
-        "Recommended (Expanded S&P Core + ETFs)": [
-            "SPY","QQQ","IWM","DIA","RSP","SPYV","SPYG","SPLV",
-            "XLK","XLF","XLE","XLY","XLP","XLV","XLI","XLU","XLB","XLRE",
-            "SMH","SOXX","XBI","IBB","KRE","KBE","IGV","SKYY","ITA","XAR","OIH","TAN","ICLN",
-            "TLT","IEF","SHY","GLD","SLV","UUP",
-        ],
-        "ETFs Only (Indexes + Sectors + Subsectors)": [
-            "SPY","QQQ","IWM","DIA","RSP","SPYV","SPYG","SPLV",
-            "XLK","XLF","XLE","XLY","XLP","XLV","XLI","XLU","XLB","XLRE",
-            "SMH","SOXX","XBI","IBB","KRE","KBE","IGV","SKYY","ITA","XAR","OIH","TAN","ICLN",
-            "TLT","IEF","SHY","GLD","SLV","UUP",
-        ],
-        "Leveraged Only (High Consequence)": [
-            "SSO","UPRO","SPXL","SDS","SPXU","SPXS","QLD","TQQQ","SQQQ",
-        ],
-    }
+    # Bigger “daily swing” universe: broad S&P leaders + common ETFs
+    "Recommended (Expanded S&P Core + ETFs)": sorted({
+        # Core index ETFs
+        "SPY","QQQ","IWM","DIA","RSP","VOO","VTI",
 
-    leveraged_set = {"SSO","UPRO","SPXL","SDS","SPXU","SPXS","QLD","TQQQ","SQQQ"}
+        # Style / factor
+        "SPYG","SPYV","SPLV","VUG","VTV","MTUM","QUAL","USMV","VLUE","DVY",
+
+        # Sectors (SPDR)
+        "XLK","XLF","XLE","XLY","XLP","XLV","XLI","XLU","XLB","XLRE",
+
+        # Semi / Tech / Growth themes
+        "SMH","SOXX","IGV","SKYY","CLOU","HACK","XSD",
+
+        # Health / Biotech
+        "XBI","IBB",
+
+        # Financials sub-sectors
+        "KRE","KBE",
+
+        # Industrials / Defense
+        "ITA","XAR",
+
+        # Energy themes
+        "OIH",
+
+        # Clean energy / solar
+        "TAN","ICLN",
+
+        # Rates / bonds
+        "TLT","IEF","SHY","HYG","LQD",
+
+        # Commodities / FX
+        "GLD","SLV","UUP",
+
+        # ── S&P 500 “liquid leaders” (roughly 100 names) ──
+        "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK.B","JPM","V",
+        "MA","AVGO","LLY","UNH","XOM","HD","COST","PG","JNJ","MRK",
+        "ABBV","PEP","KO","WMT","CRM","ADBE","NFLX","AMD","INTC","CSCO",
+        "ORCL","QCOM","TXN","AMAT","MU","NOW","INTU","IBM","PANW","CRWD",
+        "ABNB","UBER","BKNG","NKE","MCD","SBUX","DIS","TGT","LOW","CAT",
+        "DE","GE","BA","LMT","RTX","GD","NOC","MMM","HON","UNP",
+        "UPS","FDX","CVX","SLB","COP","OXY","NEE","DUK","SO","AEP",
+        "PLD","AMT","EQIX","O","SPG","CCI","WELL","VTR","AAPL",  # duplicates ok in set
+        "SCHW","BAC","WFC","C","GS","MS","BLK","SPGI","ICE",
+        "PFE","TMO","DHR","ABT","MDT","ISRG","GILD","AMGN","BMY",
+        "LIN","APD","ECL","SHW","ETN","CMCSA","TMUS","VZ","T","DELL",
+        "SNPS","CDNS","ADSK","ROP","PH","EMR","KLAC","LRCX","MRVL",
+        "BK","MMC","AON","CB","TRV","PGR","AXP",
+    }),
+
+    "ETFs Only (Indexes + Sectors + Subsectors)": sorted({
+        "SPY","QQQ","IWM","DIA","RSP","VOO","VTI",
+        "SPYG","SPYV","SPLV","VUG","VTV","MTUM","QUAL","USMV","VLUE","DVY",
+        "XLK","XLF","XLE","XLY","XLP","XLV","XLI","XLU","XLB","XLRE",
+        "SMH","SOXX","IGV","SKYY","CLOU","HACK","XSD",
+        "XBI","IBB",
+        "KRE","KBE",
+        "ITA","XAR",
+        "OIH",
+        "TAN","ICLN",
+        "TLT","IEF","SHY","HYG","LQD",
+        "GLD","SLV","UUP",
+    }),
+
+    "Leveraged Only (High Consequence)": sorted({
+        "SSO","UPRO","SPXL","SDS","SPXU","SPXS",
+        "QLD","TQQQ","SQQQ",
+        "DDM","DXD",     # Dow 2x bull/bear
+        "UWM","TWM",     # Russell 2x bull/bear
+        "ROM","REW",     # Tech 2x bull/bear
+        "MVV","MZZ",     # Midcap 2x bull/bear
+        "FAS","FAZ",     # Financials 3x bull/bear
+        "TNA","TZA",     # Smallcap 3x bull/bear
+        "SOXL","SOXS",   # Semis 3x bull/bear
+        "LABU","LABD",   # Biotech 3x bull/bear
+        "SPUU","SH",     # SPY 2x / inverse 1x (optional)
+    }),
+}
+
+leveraged_set = set(PRESETS["Leveraged Only (High Consequence)"])
 
     def scanner_defaults_for_preset(preset: str):
         if "Leveraged" in preset:
