@@ -195,14 +195,14 @@ with col2:
     st.write(f"- **Target 1:** {t1:.2f}")
     st.write(f"- **Target 2:** {t2:.2f}")
 
-    with st.expander("Risk/Reward Table", expanded=True):
+    with st.expander("Risk/Reward Table (Is This Worth Attempting?)", expanded=True):
         rows = [
             {
                 "Level": "Entry",
                 "Price": f"{entry:.2f}",
                 "Δ vs Entry ($/sh)": "—",
                 "Risk/Reward (R)": "—",
-                "Notes": "Planned Entry Price",
+                "Notes": "Planned entry price",
             },
             {
                 "Level": "Stop Loss",
@@ -224,7 +224,7 @@ with col2:
                 "Price": f"{t2:.2f}",
                 "Δ vs Entry ($/sh)": f"+{reward_t2:.2f}",
                 "Risk/Reward (R)": f"{r2:.2f}R" if r2 is not None else "n/a",
-                "Notes": "Stretch/Runner Target",
+                "Notes": "Stretch/runner target",
             },
         ]
         tbl = pd.DataFrame(rows)
@@ -337,7 +337,7 @@ with col2:
 
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["Quick Backtest", "Stats Summary", "Recent Logs"])
+tab1, tab2, tab3, tab4 = st.tabs(["Quick Backtest", "Stats Summary", "Recent Logs", "Scanner"])
 
 with tab1:
     st.caption("A simplified historical check of the current plan type using daily bars (for sanity checking only).")
@@ -363,3 +363,284 @@ with tab3:
     st.caption("Recent plan snapshots saved locally (SQLite).")
     snaps = db.read_recent_snapshots(symbol=symbol, limit=25)
     st.dataframe(snaps, use_container_width=True, hide_index=True)
+
+with tab4:
+    st.subheader("Scanner")
+    st.caption(
+        "Scans a universe of tickers and ranks candidates using the same daily plan logic. "
+        "Each ticker is evaluated using its own recommended stop/target defaults (per-ticker volatility-aware settings)."
+    )
+
+    # --- Universe Presets ---
+    PRESETS = {
+        "Recommended (Expanded S&P Core + ETFs)": [
+            # Core index / style ETFs
+            "SPY", "QQQ", "IWM", "DIA", "RSP", "SPYV", "SPYG", "SPLV",
+            # Sector ETFs
+            "XLK", "XLF", "XLE", "XLY", "XLP", "XLV", "XLI", "XLU", "XLB", "XLRE",
+            # Subsector ETFs
+            "SMH", "SOXX", "XBI", "IBB", "KRE", "KBE", "IGV", "SKYY", "ITA", "XAR", "OIH", "TAN", "ICLN",
+
+            # S&P 500 heavy liquidity / high quality (curated)
+            "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO", "CRM", "ADBE", "ORCL", "NOW",
+            "CSCO", "INTC", "AMD", "QCOM", "TXN", "AMAT", "MU", "PANW", "CRWD", "NFLX",
+
+            "BRK.B", "JPM", "BAC", "WFC", "C", "GS", "MS", "BLK", "SCHW", "AXP", "SPGI", "CME", "ICE",
+            "PNC", "USB", "TFC",
+
+            "UNH", "JNJ", "LLY", "PFE", "MRK", "ABBV", "TMO", "DHR", "ABT", "MDT", "BMY", "AMGN", "GILD",
+            "ISRG", "VRTX", "CVS", "CI", "HUM",
+
+            "TSLA", "HD", "LOW", "COST", "WMT", "TGT", "NKE", "SBUX", "MCD", "BKNG", "DIS", "CMCSA",
+
+            "CAT", "DE", "HON", "GE", "LMT", "RTX", "BA", "UNP", "UPS", "FDX", "ADP", "WM", "ETN", "PH",
+
+            "XOM", "CVX", "COP", "SLB", "EOG", "PSX", "MPC", "VLO",
+
+            "LIN", "SHW", "FCX", "NEM", "APD", "ECL",
+
+            "NEE", "DUK", "SO", "AEP", "EXC", "XEL",
+
+            "AMT", "PLD", "EQIX", "DLR", "O",
+        ],
+        "ETFs Only (Indexes + Sectors + Subsectors)": [
+            "SPY", "QQQ", "IWM", "DIA", "RSP", "SPYV", "SPYG", "SPLV",
+            "XLK", "XLF", "XLE", "XLY", "XLP", "XLV", "XLI", "XLU", "XLB", "XLRE",
+            "SMH", "SOXX", "XBI", "IBB", "KRE", "KBE", "IGV", "SKYY", "ITA", "XAR", "OIH", "TAN", "ICLN",
+            "TLT", "IEF", "SHY", "GLD", "SLV", "UUP",
+        ],
+        "Leveraged Only (High Consequence)": [
+            "SSO", "UPRO", "SPXL", "SDS", "SPXU", "SPXS",
+            "QLD", "TQQQ", "SQQQ",
+        ],
+    }
+
+    leveraged_set = {
+        "SSO", "UPRO", "SPXL", "SDS", "SPXU", "SPXS",
+        "QLD", "TQQQ", "SQQQ",
+    }
+
+    # --- Ranking ---
+    def _score(sym: str, r1_: float | None, risk_atr_: float | None, entry_pct_: float | None) -> float | None:
+        # Ranking uses ONLY normalized metrics; raw ATR should never be used in the score.
+        if r1_ is None or risk_atr_ is None or entry_pct_ is None:
+            return None
+
+        is_lev = sym in leveraged_set
+
+        # Coefficients (leveraged gets stricter penalties)
+        if is_lev:
+            w_r, w_risk, w_entry = 1.25, 1.20, 0.70
+        else:
+            w_r, w_risk, w_entry = 1.40, 0.90, 0.60
+
+        # Soft caps to keep extreme values from dominating
+        risk_atr_c = min(max(risk_atr_, 0.0), 3.0)
+        entry_pct_c = min(max(entry_pct_, 0.0), 5.0)
+
+        return (w_r * r1_) - (w_risk * risk_atr_c) - (w_entry * entry_pct_c)
+
+    preset_name = st.selectbox("Universe Preset", list(PRESETS.keys()), index=0, key="scan_preset")
+    preset_universe = PRESETS[preset_name]
+    default_universe_text = "\n".join(preset_universe)
+
+    universe_text = st.text_area(
+        "Tickers to Scan (one per line)",
+        value=default_universe_text,
+        height=220,
+        help="Tip: 50–150 tickers is fine with caching. Larger lists will run slower on Streamlit Cloud.",
+        key="scan_universe_text",
+    )
+    universe = sorted({t.strip().upper() for t in universe_text.splitlines() if t.strip()})
+
+    st.markdown("### Filters")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        min_r_to_t1 = st.slider("Min R to T1", 0.5, 4.0, 1.5, 0.1, key="scan_min_r1")
+    with c2:
+        max_risk_atr = st.slider("Max Risk (ATR)", 0.5, 3.0, 1.8, 0.1, key="scan_max_risk_atr")
+    with c3:
+        max_entry_away_pct = st.slider("Max Entry Away (%)", 0.0, 5.0, 1.0, 0.1, key="scan_max_entry_pct")
+    with c4:
+        min_bars = st.number_input("Min History (bars)", min_value=200, value=300, step=50, key="scan_min_bars")
+    with c5:
+        top_n = st.number_input("Show Top N", min_value=5, value=25, step=5, key="scan_top_n")
+
+    show_all = st.checkbox("Show All (Including Fails)", value=False, key="scan_show_all")
+
+    st.markdown("### Run Scan")
+
+    @st.cache_data(show_spinner=False)
+    def _get_daily(symbol_: str, source_: str, force_refresh_: bool):
+        return md.get_daily_bars(symbol=symbol_, source=source_, force_refresh=force_refresh_)
+
+    def _to_float(x):
+        try:
+            return float(x)
+        except Exception:
+            return None
+
+    def _entry_away_pct(last_close: float | None, entry_: float | None) -> float | None:
+        if last_close is None or entry_ is None or last_close == 0:
+            return None
+        return abs(entry_ - last_close) / last_close * 100.0
+
+    def _risk_in_atr(risk_per_share_: float | None, atr14_: float | None) -> float | None:
+        if risk_per_share_ is None or atr14_ is None or atr14_ <= 0:
+            return None
+        return risk_per_share_ / atr14_
+
+    def _clamp_lookahead(x: int) -> int:
+        # keep horizons aligned to the UI options
+        return x if x in (10, 20, 40) else 20
+
+    class _NoOpDB:
+        """A no-op DB object to avoid writing scan runs to SQLite while keeping build_plan calls safe."""
+        def __getattr__(self, _name):
+            def _noop(*_args, **_kwargs):
+                return None
+            return _noop
+
+    run = st.button("Scan Universe", type="primary", use_container_width=True, key="scan_run")
+
+    if run:
+        if not universe:
+            st.warning("Universe is empty. Add tickers above and try again.")
+            st.stop()
+
+        results = []
+        progress = st.progress(0)
+        status = st.empty()
+
+        for i, sym in enumerate(universe, start=1):
+            status.write(f"Scanning **{sym}** ({i}/{len(universe)})…")
+
+            try:
+                dfi = _get_daily(sym, data_source, force_refresh)
+                if dfi is None or dfi.empty or len(dfi) < int(min_bars):
+                    progress.progress(i / len(universe))
+                    continue
+
+                # Per-ticker recommended parameters (the upgrade you asked for)
+                dfi_feat = add_indicators(dfi, ema_fast=20, ema_mid=50, ema_slow=200, atr_n=14).dropna()
+                if dfi_feat is None or dfi_feat.empty:
+                    progress.progress(i / len(universe))
+                    continue
+
+                rec_i = recommend_trade_params(dfi_feat)
+                lookahead_i = _clamp_lookahead(int(getattr(rec_i, "lookahead_days", 20)))
+                stop_atr_i = float(getattr(rec_i, "stop_atr", 1.2))
+                target1_atr_i = float(getattr(rec_i, "target1_atr", 2.0))
+                target2_mult_i = float(getattr(rec_i, "target2_mult", 1.6))
+
+                pl = build_plan(
+                    symbol=sym,
+                    df=dfi,
+                    lookahead_bars=int(lookahead_i),
+                    stop_atr=stop_atr_i,
+                    target1_atr=target1_atr_i,
+                    target2_mult=target2_mult_i,
+                    max_risk_dollars=0.0,
+                    db=_NoOpDB(),  # <- do not log scan runs
+                )
+
+                last_close = _to_float(getattr(pl, "last_close", None))
+                entry_price = _to_float(getattr(pl, "entry_price", None))
+                atr14_i = _to_float(getattr(pl, "atr14", None))
+                risk_ps = _to_float(getattr(pl, "risk_per_share", None))
+                r_to_t1 = _to_float(getattr(pl, "r_to_t1", None))
+                r_to_t2 = _to_float(getattr(pl, "r_to_t2", None))
+
+                entry_pct = _entry_away_pct(last_close, entry_price)
+                risk_atr_i = _risk_in_atr(risk_ps, atr14_i)
+                score = _score(sym, r_to_t1, risk_atr_i, entry_pct)
+
+                # Filters (gatekeeper)
+                passes = True
+                if r_to_t1 is None or r_to_t1 < float(min_r_to_t1):
+                    passes = False
+                if risk_atr_i is None or risk_atr_i > float(max_risk_atr):
+                    passes = False
+                if entry_pct is None or entry_pct > float(max_entry_away_pct):
+                    passes = False
+
+                results.append({
+                    "Ticker": sym,
+                    "Type": "Leveraged" if sym in leveraged_set else "Standard",
+                    "Regime": getattr(pl, "regime", ""),
+                    "Setup": getattr(pl, "setup_name", ""),
+                    "Last Close": last_close,
+                    "Entry": entry_price,
+                    "Stop": _to_float(getattr(pl, "stop_price", None)),
+                    "Target 1": _to_float(getattr(pl, "target1_price", None)),
+                    "Target 2": _to_float(getattr(pl, "target2_price", None)),
+                    "ATR(14)": atr14_i,
+                    "Risk (ATR)": risk_atr_i,
+                    "R to T1": r_to_t1,
+                    "R to T2": r_to_t2,
+                    "Entry Away %": entry_pct,
+                    "Rec Stop (ATR)": stop_atr_i,
+                    "Rec Target (ATR)": target1_atr_i,
+                    "Lookahead (Days)": lookahead_i,
+                    "Score": score,
+                    "Verdict": "✅ Pass" if passes else "—",
+                })
+
+            except Exception:
+                # Keep scanning; do not fail the whole run
+                pass
+
+            progress.progress(i / len(universe))
+
+        status.empty()
+
+        if not results:
+            st.warning("No results returned. Try fewer symbols, verify tickers, or disable Force Refresh.")
+            st.stop()
+
+        df_scan = pd.DataFrame(results)
+
+        if not show_all:
+            df_scan = df_scan[df_scan["Verdict"] == "✅ Pass"].copy()
+
+        if df_scan.empty:
+            st.warning("Nothing passed your filters. Try relaxing thresholds slightly or scanning a different universe preset.")
+            st.stop()
+
+        # Sort by Score (desc), then supporting fields
+        df_scan = df_scan.sort_values(
+            by=["Score", "R to T1", "Entry Away %", "Risk (ATR)"],
+            ascending=[False, False, True, True],
+            na_position="last",
+        ).reset_index(drop=True)
+
+        df_scan.insert(0, "Rank", df_scan.index + 1)
+
+        st.markdown("### Ranked Results")
+        st.dataframe(
+            df_scan.head(int(top_n)),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Rank": st.column_config.NumberColumn(format="%d"),
+                "Last Close": st.column_config.NumberColumn(format="%.2f"),
+                "Entry": st.column_config.NumberColumn(format="%.2f"),
+                "Stop": st.column_config.NumberColumn(format="%.2f"),
+                "Target 1": st.column_config.NumberColumn(format="%.2f"),
+                "Target 2": st.column_config.NumberColumn(format="%.2f"),
+                "ATR(14)": st.column_config.NumberColumn(format="%.2f"),
+                "Risk (ATR)": st.column_config.NumberColumn(format="%.2f"),
+                "R to T1": st.column_config.NumberColumn(format="%.2f"),
+                "R to T2": st.column_config.NumberColumn(format="%.2f"),
+                "Entry Away %": st.column_config.NumberColumn(format="%.2f"),
+                "Rec Stop (ATR)": st.column_config.NumberColumn(format="%.2f"),
+                "Rec Target (ATR)": st.column_config.NumberColumn(format="%.2f"),
+                "Lookahead (Days)": st.column_config.NumberColumn(format="%d"),
+                "Score": st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
+
+        st.caption(
+            "Ranking uses normalized metrics only: **R to T1**, **Risk in ATR**, and **Entry Away %**. "
+            "Each ticker is evaluated using its own recommended stop/target defaults to stay fair across volatility profiles."
+        )
