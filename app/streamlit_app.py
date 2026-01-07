@@ -293,12 +293,12 @@ with tab1:
 with tab2:
     from spyplanner.stats.reports import stats_summary_table
     tbl = stats_summary_table(db=db, symbol=symbol)
-    st.dataframe(tbl, use_container_width=True)
+    st.dataframe(tbl, use_container_width=True, hide_index=True)
 
 with tab3:
     st.caption("Recent plan snapshots saved locally (SQLite).")
     snaps = db.read_recent_snapshots(symbol=symbol, limit=25)
-    st.dataframe(snaps, use_container_width=True)
+    st.dataframe(snaps, use_container_width=True, hide_index=True)
 
 with tab4:
     st.subheader("Scanner")
@@ -308,42 +308,18 @@ with tab4:
     )
 
     PRESETS = {
-    # Bigger “daily swing” universe: broad S&P leaders + common ETFs
         "Recommended (Expanded S&P Core + ETFs)": sorted({
-        # Core index ETFs
             "SPY","QQQ","IWM","DIA","RSP","VOO","VTI",
-
-        # Style / factor
             "SPYG","SPYV","SPLV","VUG","VTV","MTUM","QUAL","USMV","VLUE","DVY",
-
-        # Sectors (SPDR)
             "XLK","XLF","XLE","XLY","XLP","XLV","XLI","XLU","XLB","XLRE",
-
-        # Semi / Tech / Growth themes
             "SMH","SOXX","IGV","SKYY","CLOU","HACK","XSD",
-
-        # Health / Biotech
             "XBI","IBB",
-
-        # Financials sub-sectors
             "KRE","KBE",
-
-        # Industrials / Defense
             "ITA","XAR",
-
-        # Energy themes
             "OIH",
-
-        # Clean energy / solar
             "TAN","ICLN",
-
-        # Rates / bonds
             "TLT","IEF","SHY","HYG","LQD",
-
-        # Commodities / FX
             "GLD","SLV","UUP",
-
-        # ── S&P 500 “liquid leaders” (roughly 100 names) ──
             "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK.B","JPM","V",
             "MA","AVGO","LLY","UNH","XOM","HD","COST","PG","JNJ","MRK",
             "ABBV","PEP","KO","WMT","CRM","ADBE","NFLX","AMD","INTC","CSCO",
@@ -351,14 +327,12 @@ with tab4:
             "ABNB","UBER","BKNG","NKE","MCD","SBUX","DIS","TGT","LOW","CAT",
             "DE","GE","BA","LMT","RTX","GD","NOC","MMM","HON","UNP",
             "UPS","FDX","CVX","SLB","COP","OXY","NEE","DUK","SO","AEP",
-            "PLD","AMT","EQIX","O","SPG","CCI","WELL","VTR","AAPL",  # duplicates ok in set
-            "SCHW","BAC","WFC","C","GS","MS","BLK","SPGI","ICE",
-            "PFE","TMO","DHR","ABT","MDT","ISRG","GILD","AMGN","BMY",
-            "LIN","APD","ECL","SHW","ETN","CMCSA","TMUS","VZ","T","DELL",
-            "SNPS","CDNS","ADSK","ROP","PH","EMR","KLAC","LRCX","MRVL",
-            "BK","MMC","AON","CB","TRV","PGR","AXP",
+            "PLD","AMT","EQIX","O","SPG","CCI","WELL","VTR","SCHW","BAC","WFC",
+            "C","GS","MS","BLK","SPGI","ICE","PFE","TMO","DHR","ABT","MDT","ISRG",
+            "GILD","AMGN","BMY","LIN","APD","ECL","SHW","ETN","CMCSA","TMUS","VZ","T",
+            "DELL","SNPS","CDNS","ADSK","ROP","PH","EMR","KLAC","LRCX","MRVL","BK","MMC",
+            "AON","CB","TRV","PGR","AXP",
         }),
-
         "ETFs Only (Indexes + Sectors + Subsectors)": sorted({
             "SPY","QQQ","IWM","DIA","RSP","VOO","VTI",
             "SPYG","SPYV","SPLV","VUG","VTV","MTUM","QUAL","USMV","VLUE","DVY",
@@ -372,57 +346,30 @@ with tab4:
             "TLT","IEF","SHY","HYG","LQD",
             "GLD","SLV","UUP",
         }),
-
         "Leveraged Only (High Consequence)": sorted({
             "SSO","UPRO","SPXL","SDS","SPXU","SPXS",
             "QLD","TQQQ","SQQQ",
-            "DDM","DXD",     # Dow 2x bull/bear
-            "UWM","TWM",     # Russell 2x bull/bear
-            "ROM","REW",     # Tech 2x bull/bear
-            "MVV","MZZ",     # Midcap 2x bull/bear
-            "FAS","FAZ",     # Financials 3x bull/bear
-            "TNA","TZA",     # Smallcap 3x bull/bear
-            "SOXL","SOXS",   # Semis 3x bull/bear
-            "LABU","LABD",   # Biotech 3x bull/bear
-            "SPUU","SH",     # SPY 2x / inverse 1x (optional)
+            "DDM","DXD",
+            "UWM","TWM",
+            "ROM","REW",
+            "MVV","MZZ",
+            "FAS","FAZ",
+            "TNA","TZA",
+            "SOXL","SOXS",
+            "LABU","LABD",
+            "SPUU","SH",
         }),
     }
 
     leveraged_set = set(PRESETS["Leveraged Only (High Consequence)"])
 
+    # --- helpers MUST be top-level within the tab block (not nested under other blocks) ---
     def scanner_defaults_for_preset(preset: str):
         if "Leveraged" in preset:
             return dict(min_r=1.8, max_risk_atr=1.5, max_entry_pct=0.6)
         if "ETFs Only" in preset:
             return dict(min_r=1.6, max_risk_atr=1.7, max_entry_pct=0.8)
         return dict(min_r=1.5, max_risk_atr=1.8, max_entry_pct=1.0)
-
-    preset_name = st.selectbox("Universe Preset", list(PRESETS.keys()), index=0, key="scan_preset")
-    adaptive = scanner_defaults_for_preset(preset_name)
-
-    universe_text = st.text_area(
-        "Tickers to Scan (one per line)",
-        value="\n".join(PRESETS[preset_name]),
-        height=220,
-        key="scan_universe_text",
-    )
-    universe = sorted({t.strip().upper() for t in universe_text.splitlines() if t.strip()})
-
-    st.markdown("### Filters")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        min_r_to_t1 = st.slider("Min R to T1", 0.5, 4.0, adaptive["min_r"], 0.1, key="scan_min_r1")
-    with c2:
-        max_risk_atr = st.slider("Max Risk (ATR)", 0.5, 3.0, adaptive["max_risk_atr"], 0.1, key="scan_max_risk_atr")
-    with c3:
-        max_entry_away_pct = st.slider("Max Entry Away (%)", 0.0, 5.0, adaptive["max_entry_pct"], 0.1, key="scan_max_entry_pct")
-    with c4:
-        min_bars = st.number_input("Min History (bars)", min_value=200, value=300, step=50, key="scan_min_bars")
-    with c5:
-        top_n = st.number_input("Show Top N", min_value=5, value=25, step=5, key="scan_top_n")
-
-    st.caption(f"Scanner defaults auto-adjusted for **{preset_name}**. You can override any filter manually.")
-    show_all = st.checkbox("Show All (Including Fails)", value=False, key="scan_show_all")
 
     def _to_float(x):
         try:
@@ -461,28 +408,73 @@ with tab4:
         entry_pct_c = min(max(entry_pct_, 0.0), 5.0)
         return (w_r * r1_) - (w_risk * risk_atr_c) - (w_entry * entry_pct_c)
 
+    preset_name = st.selectbox("Universe Preset", list(PRESETS.keys()), index=0, key="scan_preset")
+    adaptive = scanner_defaults_for_preset(preset_name)
+
+    universe_text = st.text_area(
+        "Tickers to Scan (one per line)",
+        value="\n".join(PRESETS[preset_name]),
+        height=220,
+        key="scan_universe_text",
+    )
+    universe = sorted({t.strip().upper() for t in universe_text.splitlines() if t.strip()})
+
+    st.markdown("### Filters")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        min_r_to_t1 = st.slider("Min R to T1", 0.5, 4.0, adaptive["min_r"], 0.1, key="scan_min_r1")
+    with c2:
+        max_risk_atr = st.slider("Max Risk (ATR)", 0.5, 3.0, adaptive["max_risk_atr"], 0.1, key="scan_max_risk_atr")
+    with c3:
+        max_entry_away_pct = st.slider("Max Entry Away (%)", 0.0, 5.0, adaptive["max_entry_pct"], 0.1, key="scan_max_entry_pct")
+    with c4:
+        min_bars = st.number_input("Min History (bars)", min_value=200, value=300, step=50, key="scan_min_bars")
+    with c5:
+        top_n = st.number_input("Show Top N", min_value=5, value=25, step=5, key="scan_top_n")
+
+    st.caption(f"Scanner defaults auto-adjusted for **{preset_name}**. You can override any filter manually.")
+    show_all = st.checkbox("Show All (Including Fails)", value=False, key="scan_show_all")
+
+    # New: keep tight-stop results but optionally hide them
+    hide_tight = st.checkbox("Hide Tight-Stop Plans (<0.5 ATR)", value=True, key="scan_hide_tight")
+
     run = st.button("Scan Universe", type="primary", use_container_width=True, key="scan_run")
+
     if run:
         if not universe:
             st.warning("Universe is empty. Add tickers above and try again.")
             st.stop()
 
         results = []
+        failures = []  # new: show which tickers failed and why
+
         progress = st.progress(0)
         status = st.empty()
 
-        MIN_RISK_ATR = 0.5  # sanity floor to avoid fake 50R+ trades from micro-stops
+        # Sanity floor: avoid unrealistic micro-stop plans dominating rank
+        MIN_RISK_ATR = 0.5
+        TIGHT_STOP_PENALTY = 5.0  # penalize score so it doesn't float to rank #1
+
+        scanned = 0
+        returned = 0
+        skipped_history = 0
+        failed = 0
 
         for i, sym in enumerate(universe, start=1):
+            scanned += 1
             status.write(f"Scanning **{sym}** ({i}/{len(universe)})…")
+
             try:
                 dfi = md.get_daily_bars(symbol=sym, source=data_source, force_refresh=force_refresh)
                 if dfi is None or dfi.empty or len(dfi) < int(min_bars):
+                    skipped_history += 1
                     progress.progress(i / len(universe))
                     continue
 
                 dfi_feat = add_indicators(dfi, ema_fast=20, ema_mid=50, ema_slow=200, atr_n=14).dropna()
                 if dfi_feat is None or dfi_feat.empty:
+                    failed += 1
+                    failures.append({"Ticker": sym, "Stage": "Indicators", "Reason": "No usable rows after indicators/dropna()"})
                     progress.progress(i / len(universe))
                     continue
 
@@ -505,42 +497,42 @@ with tab4:
 
                 last_close = _to_float(getattr(pl, "last_close", None))
                 entry_price = _to_float(getattr(pl, "entry_price", None))
+                stop_price = _to_float(getattr(pl, "stop_price", None))
                 atr14_i = _to_float(getattr(pl, "atr14", None))
                 risk_ps = _to_float(getattr(pl, "risk_per_share", None))
-                r_to_t1 = _to_float(getattr(pl, "r_to_t1", None))
-                r_to_t2 = _to_float(getattr(pl, "r_to_t2", None))
+
+                # ---- Normalize targets so T1 is always the closer target and T2 is farther ----
+                t_a = _to_float(getattr(pl, "target1_price", None))
+                t_b = _to_float(getattr(pl, "target2_price", None))
+                t_candidates = [x for x in (t_a, t_b) if x is not None]
+
+                t1_price, t2_price = None, None
+                if entry_price is not None and len(t_candidates) == 2:
+                    # For long plans, nearer target is the smaller price above entry (sorted)
+                    t1_price, t2_price = sorted(t_candidates)
+                elif len(t_candidates) == 1:
+                    t1_price = t_candidates[0]
 
                 entry_pct = _entry_away_pct(last_close, entry_price)
                 risk_atr_i = _risk_in_atr(risk_ps, atr14_i)
 
-                # --- Sanity floor: stop must be meaningful vs daily noise ---
-                if risk_atr_i is None or risk_atr_i < MIN_RISK_ATR:
-                    results.append({
-                        "Ticker": sym,
-                        "Type": "Leveraged" if sym in leveraged_set else "Standard",
-                        "Regime": getattr(pl, "regime", ""),
-                        "Setup": getattr(pl, "setup_name", ""),
-                        "Last Close": last_close,
-                        "Entry": entry_price,
-                        "Stop": _to_float(getattr(pl, "stop_price", None)),
-                        "Target 1": _to_float(getattr(pl, "target1_price", None)),
-                        "Target 2": _to_float(getattr(pl, "target2_price", None)),
-                        "ATR(14)": atr14_i,
-                        "Risk (ATR)": risk_atr_i,
-                        "R to T1": r_to_t1,
-                        "R to T2": r_to_t2,
-                        "Entry Away %": entry_pct,
-                        "Rec Stop (ATR)": stop_atr_i,
-                        "Rec Target (ATR)": target1_atr_i,
-                        "Lookahead (Days)": lookahead_i,
-                        "Score": None,
-                        "Verdict": "❌ Stop Too Tight (<0.5 ATR)",
-                    })
-                    progress.progress(i / len(universe))
-                    continue
+                # recompute R's based on normalized targets
+                r_to_t1 = None
+                r_to_t2 = None
+                if entry_price is not None and risk_ps is not None and risk_ps > 0:
+                    if t1_price is not None:
+                        r_to_t1 = (t1_price - entry_price) / risk_ps
+                    if t2_price is not None:
+                        r_to_t2 = (t2_price - entry_price) / risk_ps
+
+                # ---- Tight stop: keep, label, penalize score ----
+                tight_stop = (risk_atr_i is not None and risk_atr_i < MIN_RISK_ATR)
 
                 score = _score(sym, r_to_t1, risk_atr_i, entry_pct)
+                if tight_stop and score is not None:
+                    score = score - TIGHT_STOP_PENALTY
 
+                # Pass/fail checks (tight stop no longer auto-fails)
                 passes = True
                 if r_to_t1 is None or r_to_t1 < float(min_r_to_t1):
                     passes = False
@@ -549,6 +541,10 @@ with tab4:
                 if entry_pct is None or entry_pct > float(max_entry_away_pct):
                     passes = False
 
+                verdict = "✅ Pass" if passes else "—"
+                if tight_stop:
+                    verdict = f"⚠️ Tight Stop (<{MIN_RISK_ATR:.1f} ATR)"
+
                 results.append({
                     "Ticker": sym,
                     "Type": "Leveraged" if sym in leveraged_set else "Standard",
@@ -556,9 +552,9 @@ with tab4:
                     "Setup": getattr(pl, "setup_name", ""),
                     "Last Close": last_close,
                     "Entry": entry_price,
-                    "Stop": _to_float(getattr(pl, "stop_price", None)),
-                    "Target 1": _to_float(getattr(pl, "target1_price", None)),
-                    "Target 2": _to_float(getattr(pl, "target2_price", None)),
+                    "Stop": stop_price,
+                    "Target 1": t1_price,
+                    "Target 2": t2_price,
                     "ATR(14)": atr14_i,
                     "Risk (ATR)": risk_atr_i,
                     "R to T1": r_to_t1,
@@ -568,25 +564,41 @@ with tab4:
                     "Rec Target (ATR)": target1_atr_i,
                     "Lookahead (Days)": lookahead_i,
                     "Score": score,
-                    "Verdict": "✅ Pass" if passes else "—",
+                    "Verdict": verdict,
                 })
-            except Exception:
-                pass
+                returned += 1
+
+            except Exception as e:
+                failed += 1
+                failures.append({"Ticker": sym, "Stage": "Build/Scan", "Reason": repr(e)})
 
             progress.progress(i / len(universe))
 
         status.empty()
+
+        st.info(
+            f"Scanned: **{scanned}** | Returned: **{returned}** | "
+            f"Skipped (history < {int(min_bars)}): **{skipped_history}** | Failed: **{failed}**"
+        )
 
         if not results:
             st.warning("No results returned. Try fewer symbols, verify tickers, or disable Force Refresh.")
             st.stop()
 
         df_scan = pd.DataFrame(results)
+
+        # Optional hide tight stop plans
+        if hide_tight:
+            df_scan = df_scan[df_scan["Verdict"].str.contains("Tight Stop") == False].copy()
+
         if not show_all:
-            df_scan = df_scan[df_scan["Verdict"] == "✅ Pass"].copy()
+            df_scan = df_scan[df_scan["Verdict"].isin(["✅ Pass"])].copy()
 
         if df_scan.empty:
-            st.warning("Nothing passed your filters. Try relaxing thresholds or scanning a different preset.")
+            st.warning("Nothing passed your filters (or everything was hidden). Try relaxing thresholds or scanning a different preset.")
+            if failures:
+                with st.expander("Show Failures (Why Some Tickers Were Skipped/Failed)"):
+                    st.dataframe(pd.DataFrame(failures).head(200), use_container_width=True, hide_index=True)
             st.stop()
 
         df_scan = df_scan.sort_values(
@@ -601,6 +613,10 @@ with tab4:
         st.dataframe(df_scan.head(int(top_n)), use_container_width=True, hide_index=True)
 
         st.caption(
-            "Ranking uses normalized metrics only: **R to T1**, **Risk in ATR**, and **Entry Away %**. "
+            "Ranking uses normalized metrics: **R to T1**, **Risk (ATR)**, and **Entry Away %**. "
             "Each ticker is evaluated using its own recommended stop/target defaults."
         )
+
+        if failures:
+            with st.expander("Show Failures (Why Some Tickers Were Skipped/Failed)"):
+                st.dataframe(pd.DataFrame(failures).head(200), use_container_width=True, hide_index=True)
