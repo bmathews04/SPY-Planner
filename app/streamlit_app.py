@@ -157,8 +157,10 @@ with col2:
 
     entry = float(plan.entry_price)
     stop = float(plan.stop_price)
-    t1 = float(plan.target1_price)
-    t2 = float(plan.target2_price)
+# --- Normalize targets so Target 1 is always the closer target to entry ---
+    raw_t1 = float(plan.target1_price)
+    raw_t2 = float(plan.target2_price)
+    t1, t2 = sorted([raw_t1, raw_t2], key=lambda x: abs(x - entry))
 
     risk_per_share = float(plan.risk_per_share) if plan.risk_per_share is not None else max(entry - stop, 0.0)
     atr14 = float(plan.atr14) if plan.atr14 is not None else None
@@ -166,8 +168,8 @@ with col2:
     reward_t1 = t1 - entry
     reward_t2 = t2 - entry
 
-    r1 = float(plan.r_to_t1) if plan.r_to_t1 is not None else (reward_t1 / risk_per_share if risk_per_share > 0 else None)
-    r2 = float(plan.r_to_t2) if plan.r_to_t2 is not None else (reward_t2 / risk_per_share if risk_per_share > 0 else None)
+    r1 = (reward_t1 / risk_per_share) if risk_per_share > 0 else None
+    r2 = (reward_t2 / risk_per_share) if risk_per_share > 0 else None
 
     risk_atr = (risk_per_share / atr14) if (atr14 and atr14 > 0) else None
 
